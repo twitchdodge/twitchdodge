@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Twitch Dodge</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0b0b12; color: #e8e8f0;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    overflow: hidden; user-select: none;
+    -webkit-user-select: none; -webkit-touch-callout: none;
+  }
+  #wrap {
+    position: relative; width: 100vw; height: 100vh;
+    height: 100dvh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px; padding: 8px; box-sizing: border-box;
+  }
+  #gameArea {
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    flex: 1 1 auto; min-height: 0; width: 100%;
+  }
+  canvas#game {
+    background: radial-gradient(ellipse at center, #14142a 0%, #07070d 80%);
+    border: 1px solid #2a2a44; border-radius: 8px;
+    max-width: 100%; max-height: 100%;
+    cursor: none;
+  }
+  #pad {
+    display: none;
+    width: 66%;
+    max-width: 66%;
+    aspect-ratio: 4 / 3;
+    flex: 0 0 auto;
+    background: #10101c;
+    border: 1px solid #2a2a44;
+    border-radius: 8px;
+    position: relative;
+    touch-action: none;
+  }
+  #pad::before {
+    content: 'touch here to move';
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #3a3a55; font-size: 12px; letter-spacing: 2px;
+    pointer-events: none;
+  }
+  #padDot {
+    position: absolute;
+    width: 14px; height: 14px;
+    margin-left: -7px; margin-top: -7px;
+    border-radius: 50%;
+    background: #7fe8ff;
+    box-shadow: 0 0 12px #7fe8ff;
+    pointer-events: none;
+    display: none;
+  }
+  @media (hover: none) and (pointer: coarse) {
+    #wrap {
+      justify-content: flex-start;
+      gap: 30px; padding: 4px 4px 16px;
+    }
+    #gameArea { flex: 0 0 auto; }
+    canvas#game {
+      max-width: calc(100vw - 8px);
+      max-height: 55dvh;
+    }
+    #pad { display: block; max-height: 22dvh; }
+    canvas#game { cursor: default; }
+  }
+  #hud {
+    position: absolute; top: 16px; left: 0; right: 0;
+    text-align: center; font-size: 14px; letter-spacing: 2px;
+    pointer-events: none; text-shadow: 0 0 8px #000;
+  }
+  #score { font-size: 28px; font-weight: bold; }
+  #msg {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center; pointer-events: none;
+  }
+  #msg h1 { font-size: 32px; margin: 0 0 8px; letter-spacing: 4px; }
+  #msg p { margin: 4px 0; opacity: 0.8; font-size: 13px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="gameArea">
+    <canvas id="game" width="800" height="600"></canvas>
+    <div id="hud">
+      <div id="score">0</div>
+      <div id="best">best: 0</div>
+    </div>
+    <div id="msg">
+      <h1>TWITCH DODGE</h1>
+      <p>move with mouse / finger</p>
+      <p>avoid the red. survive.</p>
+      <p style="margin-top:16px; opacity:1">click to start</p>
+    </div>
+  </div>
+  <div id="pad"><div id="padDot"></div></div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const bestEl = document.getElementById('best');
+const msg = document.getElementById('msg');
+
+const W = canvas.width, H = canvas.height;
+const IS_MOBILE = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+const POWER_SCALE = IS_MOBILE ? 1.5 : 1;
+let player = { x: W/2, y: H/2, r: 8 };
+let enemies = [];
+let particles = [];
+let running = false;
+let score = 0;
+let best = +localStorage.getItem('twitchBest') || 0;
+let spawnTimer = 0;
+let startTime = 0;
+let scoreAccum = 0;
+let lastFrame = 0;
+const REF_FRAME_MS = 1000 / 60;
+const MAX_DT = 50;
+let invincibleUntil = 0;
+let slowTimers = []; // array of expiry timestamps
+const SLOW_FACTOR = 0.6;
+const INVIN_MS = 5000;
+const SLOW_MS = 5000;
+const FADE_MS = 500;
+bestEl.textContent = 'best: ' + best;
+
+function rect() { return canvas.getBoundingClientRect(); }
+function setPlayer(cx, cy) {
+  const r = rect();
+  player.x = (cx - r.left) * (W / r.width);
+  player.y = (cy - r.top) * (H / r.height);
+}
+canvas.addEventListener('mousemove', e => setPlayer(e.clientX, e.clientY));
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  setPlayer(t.clientX, t.clientY);
+}, { passive: false });
+
+// Touchpad (mobile): maps proportionally to the main canvas
+const pad = document.getElementById('pad');
+const padDot = document.getElementById('padDot');
+function padMove(clientX, clientY) {
+  const r = pad.getBoundingClientRect();
+  const px = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+  const py = Math.max(0, Math.min(1, (clientY - r.top) / r.height));
+  player.x = px * W;
+  player.y = py * H;
+  padDot.style.display = 'block';
+  padDot.style.left = (px * r.width) + 'px';
+  padDot.style.top = (py * r.height) + 'px';
+}
+pad.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  padMove(t.clientX, t.clientY);
+  if (!running) start();
+}, { passive: false });
+pad.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  padMove(t.clientX, t.clientY);
+}, { passive: false });
+
+canvas.addEventListener('click', () => { if (!running) start(); });
+canvas.addEventListener('touchstart', e => {
+  if (!running) { e.preventDefault(); start(); }
+}, { passive: false });
+
+function start() {
+  running = true;
+  score = 0;
+  enemies = [];
+  particles = [];
+  spawnTimer = 0;
+  invincibleUntil = 0;
+  slowTimers = [];
+  startTime = performance.now();
+  scoreAccum = 0;
+  lastFrame = startTime;
+  msg.classList.add('hidden');
+}
+
+function gameOver() {
+  running = false;
+  if (score > best) {
+    best = score;
+    localStorage.setItem('twitchBest', best);
+    bestEl.textContent = 'best: ' + best;
+  }
+  // burst
+  for (let i = 0; i < 40; i++) {
+    particles.push({
+      x: player.x, y: player.y,
+      vx: (Math.random()-0.5)*8, vy: (Math.random()-0.5)*8,
+      life: 40, color: '#9cf'
+    });
+  }
+  msg.querySelector('h1').textContent = 'DEAD';
+  msg.querySelectorAll('p')[0].textContent = 'score: ' + score;
+  msg.querySelectorAll('p')[1].textContent = 'best: ' + best;
+  msg.querySelectorAll('p')[2].textContent = 'click to retry';
+  msg.classList.remove('hidden');
+}
+
+function spawn() {
+  // spawn from a random edge, aim near (but not exactly at) player
+  const side = Math.floor(Math.random()*4);
+  let x, y;
+  if (side === 0) { x = Math.random()*W; y = -10; }
+  else if (side === 1) { x = W+10; y = Math.random()*H; }
+  else if (side === 2) { x = Math.random()*W; y = H+10; }
+  else { x = -10; y = Math.random()*H; }
+
+  const jitter = 80;
+  const tx = player.x + (Math.random()-0.5)*jitter;
+  const ty = player.y + (Math.random()-0.5)*jitter;
+  const dx = tx - x, dy = ty - y;
+  const d = Math.hypot(dx, dy) || 1;
+  const baseSpeed = 2.2 + Math.min(4, score/600);
+  const roll = Math.random();
+  let kind = 'normal';
+  if (roll < 0.01) kind = 'invin';
+  else if (roll < 0.11) kind = 'slow';
+  const kindSpeed = kind === 'invin' ? baseSpeed * 1.6 : baseSpeed;
+  const speed = kindSpeed * (0.8 + Math.random() * 0.4);
+  enemies.push({
+    x, y,
+    vx: dx/d*speed, vy: dy/d*speed,
+    r: kind !== 'normal' ? 8 * POWER_SCALE : 6 + Math.random()*4,
+    kind
+  });
+}
+
+function loop() {
+  ctx.clearRect(0, 0, W, H);
+
+  // trail grid (cheap vibe)
+  ctx.fillStyle = 'rgba(10,10,20,0.35)';
+  ctx.fillRect(0,0,W,H);
+
+  if (running) {
+    const rawNow = performance.now();
+    const dt = Math.min(rawNow - lastFrame, MAX_DT);
+    lastFrame = rawNow;
+    const frameScale = dt / REF_FRAME_MS;
+
+    scoreAccum += dt / 10;
+    score = Math.floor(scoreAccum);
+    scoreEl.textContent = score;
+
+    spawnTimer -= frameScale;
+    const spawnRate = Math.max(6, 22 - score/160);
+    if (spawnTimer <= 0) { spawn(); spawnTimer = spawnRate; }
+
+    const now = performance.now();
+    slowTimers = slowTimers.filter(t => t > now);
+    const slowMult = Math.pow(SLOW_FACTOR, slowTimers.length);
+    const invin = now < invincibleUntil;
+
+    for (const e of enemies) {
+      e.x += e.vx * slowMult * frameScale;
+      e.y += e.vy * slowMult * frameScale;
+      const dx = e.x - player.x, dy = e.y - player.y;
+      if (Math.hypot(dx, dy) < e.r + player.r) {
+        if (e.kind === 'invin') {
+          invincibleUntil = now + INVIN_MS;
+          e.dead = true;
+          for (let i = 0; i < 24; i++) {
+            particles.push({
+              x: e.x, y: e.y,
+              vx: (Math.random()-0.5)*7, vy: (Math.random()-0.5)*7,
+              life: 35, color: `hsl(${Math.random()*360},100%,65%)`
+            });
+          }
+        } else if (e.kind === 'slow') {
+          slowTimers.push(now + SLOW_MS);
+          e.dead = true;
+          for (let i = 0; i < 24; i++) {
+            particles.push({
+              x: e.x, y: e.y,
+              vx: (Math.random()-0.5)*6, vy: (Math.random()-0.5)*6,
+              life: 35, color: '#4ef58a'
+            });
+          }
+        } else if (invin) {
+          e.dead = true;
+          for (let i = 0; i < 12; i++) {
+            particles.push({
+              x: e.x, y: e.y,
+              vx: (Math.random()-0.5)*6, vy: (Math.random()-0.5)*6,
+              life: 25, color: '#ff3860'
+            });
+          }
+        } else {
+          gameOver();
+          break;
+        }
+      }
+    }
+    enemies = enemies.filter(e => !e.dead && e.x > -30 && e.x < W+30 && e.y > -30 && e.y < H+30);
+  }
+
+  // draw enemies
+  for (const e of enemies) {
+    ctx.beginPath();
+    let col = '#ff3860';
+    if (e.kind === 'invin') col = '#38a8ff';
+    else if (e.kind === 'slow') col = '#4ef58a';
+    ctx.fillStyle = col;
+    ctx.shadowColor = col; ctx.shadowBlur = e.kind !== 'normal' ? 20 : 12;
+    ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  // particles
+  for (const p of particles) {
+    p.x += p.vx; p.y += p.vy; p.life--;
+    ctx.globalAlpha = Math.max(0, p.life/40);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, 3, 3);
+  }
+  ctx.globalAlpha = 1;
+  particles = particles.filter(p => p.life > 0);
+
+  // player
+  if (running) {
+    const now = performance.now();
+    const remaining = invincibleUntil - now;
+    const invin = remaining > 0;
+    ctx.beginPath();
+    let pcol = '#7fe8ff';
+    let blur = 16;
+    let radius = player.r;
+    let alpha = 1;
+    if (invin) {
+      // rainbow flashing
+      const hue = (now / 4) % 360;
+      pcol = `hsl(${hue}, 100%, 60%)`;
+      // fadeout in last 0.5s
+      if (remaining < FADE_MS) alpha = remaining / FADE_MS;
+      blur = 32 + Math.sin(now/40)*14;
+      radius = player.r + 4;
+      // outer halo
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.5;
+      ctx.fillStyle = `hsl(${(hue+120)%360}, 100%, 60%)`;
+      ctx.shadowColor = pcol;
+      ctx.shadowBlur = blur + 20;
+      ctx.arc(player.x, player.y, radius + 6, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      ctx.beginPath();
+    }
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = pcol;
+    ctx.shadowColor = pcol;
+    ctx.shadowBlur = blur;
+    ctx.arc(player.x, player.y, radius, 0, Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // slow field tint (stacks darker with more active)
+    const activeSlows = slowTimers.filter(t => t > now);
+    if (activeSlows.length > 0) {
+      const maxRem = Math.max(...activeSlows) - now;
+      const fade = maxRem < FADE_MS ? maxRem / FADE_MS : 1;
+      const a = Math.min(0.2, 0.08 * activeSlows.length) * fade;
+      ctx.fillStyle = `rgba(78, 245, 138, ${a})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // HUD clock icons
+    drawClocks(now);
+  }
+
+  function drawClock(cx, cy, r, fraction, colorFn) {
+    // background ring
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.stroke();
+    // pie fill
+    ctx.fillStyle = colorFn();
+    ctx.shadowColor = colorFn();
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r - 2, -Math.PI/2, -Math.PI/2 + Math.PI*2*fraction);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // outer ring
+    ctx.strokeStyle = colorFn();
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawClocks(now) {
+    const r = 28;
+    const gap = 10;
+    const y = 58;
+
+    // invincibility: top-left
+    if (now < invincibleUntil) {
+      const rem = invincibleUntil - now;
+      const frac = rem / INVIN_MS;
+      const colorFn = () => `hsl(${(now/4)%360}, 100%, 60%)`;
+      drawClock(30 + r, y, r, frac, colorFn);
+    }
+
+    // slow timers: top-right, stacked leftward
+    const active = slowTimers.filter(t => t > now).sort((a, b) => b - a);
+    let x = W - 30 - r;
+    for (const t of active) {
+      const rem = t - now;
+      drawClock(x, y, r, rem / SLOW_MS, () => '#4ef58a');
+      x -= r*2 + gap;
+    }
+  }
+
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
