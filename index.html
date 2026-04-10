@@ -233,7 +233,7 @@ function spawn() {
   const roll = Math.random();
   let kind = 'normal';
   if (roll < 0.01) kind = 'invin';
-  else if (roll < 0.11) kind = 'slow';
+  else if (roll < 0.03) kind = 'slow';
   const kindSpeed = kind === 'invin' ? baseSpeed * 1.6 : baseSpeed;
   const speed = kindSpeed * (0.8 + Math.random() * 0.4);
   enemies.push({
