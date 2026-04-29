@@ -351,7 +351,7 @@
   .hidden { display: none !important; }
   body.is-mobile #wrap {
     justify-content: flex-start;
-    gap: 50px; padding: 30px 4px 16px;
+    gap: 64px; padding: 30px 4px 16px;
   }
   body.is-mobile #gameArea { flex: 0 0 auto; }
   body.is-mobile #canvasWrap {
@@ -387,6 +387,59 @@
   body.is-mobile #settingsPanel #presetRow button { font-size: 12px !important; padding: 10px !important; }
   body.is-mobile #settingsBody > div { font-size: 22px !important; }
   body.is-mobile #settingsBody > div > button { font-size: 15px !important; padding: 10px 16px !important; }
+
+  /* ---- LANDSCAPE MOBILE ---- */
+  @media (orientation: landscape) {
+    body.is-mobile #wrap {
+      flex-direction: row;
+      padding: 4px;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+    }
+    body.is-mobile #gameArea {
+      flex: 0 1 auto;
+      height: 100%;
+      width: auto;
+    }
+    body.is-mobile #canvasWrap {
+      max-width: none;
+      max-height: calc(100dvh - 8px);
+    }
+    body.is-mobile #pad {
+      height: calc(50dvh * var(--tp-scale, 1));
+      aspect-ratio: 4 / 3;
+      max-width: none;
+      order: -1; /* default: left of canvas */
+    }
+    body.is-mobile.tp-right #pad {
+      order: 1;
+    }
+    body.is-mobile #legend {
+      grid-template-columns: repeat(2, auto);
+      font-size: 10px;
+      bottom: 4px;
+      gap: 2px 10px;
+    }
+    body.is-mobile #msg { padding-top: 8px; }
+    body.is-mobile #msg h1 { font-size: 20px; margin: 0 0 6px; }
+    body.is-mobile #msg p { font-size: 11px; margin: 3px 0; }
+    body.is-mobile #diffBtns button { padding: 5px 10px; font-size: 10px; }
+  }
+  #emergencyReset {
+    position: fixed;
+    bottom: 6px; right: 6px;
+    background: transparent;
+    color: #666;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    z-index: 9999;
+    padding: 6px;
+    opacity: 0.5;
+    line-height: 1;
+  }
+  #emergencyReset:hover { opacity: 0.9; }
 </style>
 </head>
 <body>
@@ -467,7 +520,43 @@
   </div>
 </div>
 
+<button id="emergencyReset" title="reset display settings">↺</button>
+
 <script>
+// Emergency reset: add ?reset or #reset to URL
+if (window.location.search.includes('reset') || window.location.hash.includes('reset')) {
+  try {
+    const saved = JSON.parse(localStorage.getItem('twitchSettings'));
+    if (saved) {
+      delete saved.displayMode;
+      delete saved.touchpadScale;
+      delete saved.touchpadHOffset;
+      delete saved.touchpadVOffset;
+      delete saved.touchpadLScale;
+      delete saved.touchpadLHOffset;
+      delete saved.touchpadLVAlign;
+      delete saved.touchpadSide;
+      delete saved.canvasScale;
+      delete saved.canvasVOffset;
+      localStorage.setItem('twitchSettings', JSON.stringify(saved));
+    }
+  } catch(e) {}
+  window.location.href = window.location.pathname;
+}
+document.getElementById('emergencyReset').addEventListener('click', e => {
+  e.stopPropagation();
+  if (!confirm('Reset display settings?\n(scores and gameplay settings will be kept)')) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem('twitchSettings'));
+    if (saved) {
+      ['displayMode','touchpadScale','touchpadHOffset','touchpadVOffset',
+       'touchpadLScale','touchpadLHOffset','touchpadLVAlign','touchpadSide',
+       'canvasScale','canvasVOffset'].forEach(k => delete saved[k]);
+      localStorage.setItem('twitchSettings', JSON.stringify(saved));
+    }
+  } catch(e2) {}
+  window.location.reload();
+});
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const scoreEl = document.getElementById('score');
@@ -518,8 +607,12 @@ const DEFAULTS = {
   repelDuration: 6,
   displayMode: 'auto',
   touchpadScale: 1.0,
-  touchpadGap: 1.0,
-  touchpadOffset: 0,
+  touchpadHOffset: 0,
+  touchpadVOffset: 0,
+  touchpadLScale: 1.0,
+  touchpadLHOffset: 0,
+  touchpadLVAlign: 'end',
+  touchpadSide: 'left',
   canvasScale: 1.0,
   canvasVOffset: 0,
   sfxVolume: 1.0,
@@ -532,7 +625,7 @@ const PRESETS = {
     powerupInvin: true, powerupSlow: true, powerupShock: true, powerupShield: true, powerupRepel: true, powerupCoin: true,
     invinRateMult: 1.10, slowRateMult: 2.20, shockRateMult: 2.20, shieldRateMult: 0.30, repelRateMult: 1.10, coinRateMult: 0.40,
     ballSize: 8,
-    startSpeed: 0.45,
+    startSpeed: 0.70,
     maxSpeed: 1.25,
     speedMaxScore: 100000,
     startSpawnRate: 0.7,
@@ -545,7 +638,7 @@ const PRESETS = {
     invinDuration: 7,
     slowDuration: 8,
     repelDuration: 8,
-    displayMode: 'auto', touchpadScale: 1.0, touchpadGap: 1.0, touchpadOffset: 0, canvasScale: 1.0, canvasVOffset: 0, sfxVolume: 1.0, musicVolume: 0.5, musicEnabled: true, musicTrack: "neon_drift",
+    displayMode: 'auto', touchpadScale: 1.0, touchpadHOffset: 0, touchpadVOffset: 0, touchpadLScale: 1.0, touchpadLHOffset: 0, touchpadLVAlign: 'end', touchpadSide: 'left', canvasScale: 1.0, canvasVOffset: 0, sfxVolume: 1.0, musicVolume: 0.5, musicEnabled: true, musicTrack: "neon_drift",
   },
   classic: null, // filled below from DEFAULTS
   hard: {
@@ -565,7 +658,7 @@ const PRESETS = {
     invinDuration: 4,
     slowDuration: 5,
     repelDuration: 5,
-    displayMode: 'auto', touchpadScale: 1.0, touchpadGap: 1.0, touchpadOffset: 0, canvasScale: 1.0, canvasVOffset: 0, sfxVolume: 1.0, musicVolume: 0.5, musicEnabled: true, musicTrack: "neon_drift",
+    displayMode: 'auto', touchpadScale: 1.0, touchpadHOffset: 0, touchpadVOffset: 0, touchpadLScale: 1.0, touchpadLHOffset: 0, touchpadLVAlign: 'end', touchpadSide: 'left', canvasScale: 1.0, canvasVOffset: 0, sfxVolume: 1.0, musicVolume: 0.5, musicEnabled: true, musicTrack: "neon_drift",
   },
 };
 PRESETS.classic = {...DEFAULTS};
@@ -582,21 +675,42 @@ function saveSettings() {
 function applyDisplayMode() {
   document.body.classList.toggle('is-mobile', isMobile());
 }
+function isLandscapeMobile() {
+  return isMobile() && window.matchMedia('(orientation: landscape)').matches;
+}
 function applyTouchpadScale() {
   const pad = document.getElementById('pad');
   const wrap = document.getElementById('wrap');
-  pad.style.height = (26 * settings.touchpadScale) + 'dvh';
-  if (isMobile()) {
-    wrap.style.gap = (50 * settings.touchpadGap) + 'px';
-    pad.style.marginLeft = settings.touchpadOffset + 'vw';
-  } else {
+  const cw = document.getElementById('canvasWrap');
+  document.body.classList.toggle('tp-right', settings.touchpadSide === 'right');
+  if (isLandscapeMobile()) {
+    pad.style.height = '';
+    pad.style.maxHeight = '';
+    pad.style.setProperty('--tp-scale', settings.touchpadLScale);
+    pad.style.marginLeft = settings.touchpadLHOffset + 'px';
+    pad.style.marginTop = '';
+    pad.style.alignSelf = settings.touchpadLVAlign === 'start' ? 'flex-start'
+      : settings.touchpadLVAlign === 'end' ? 'flex-end' : 'center';
     wrap.style.gap = '';
-    pad.style.marginLeft = '';
+  } else {
+    // size touchpad as fraction of canvas height for consistency across fullscreen
+    const canvasH = cw.offsetHeight || 400;
+    pad.style.height = (canvasH * (2/3) * settings.touchpadScale) + 'px';
+    pad.style.maxHeight = '';
+    pad.style.alignSelf = '';
+    pad.style.removeProperty('--tp-scale');
+    pad.style.marginLeft = settings.touchpadHOffset + 'px';
+    pad.style.marginTop = settings.touchpadVOffset + 'px';
+    wrap.style.gap = '';
   }
 }
 function applyCanvasScale() {
   const cw = document.getElementById('canvasWrap');
-  cw.style.transform = `scale(${settings.canvasScale})`;
+  // clamp scale so canvas never exceeds viewport
+  const maxScaleW = window.innerWidth / cw.offsetWidth;
+  const maxScaleH = window.innerHeight / cw.offsetHeight;
+  const clampedScale = Math.min(settings.canvasScale, maxScaleW * 0.95, maxScaleH * 0.95);
+  cw.style.transform = `scale(${clampedScale})`;
   cw.style.transformOrigin = 'center top';
   document.getElementById('wrap').style.marginTop = settings.canvasVOffset + 'px';
 }
@@ -669,7 +783,7 @@ document.querySelectorAll('#diffBtns button').forEach(btn => {
     const diff = btn.dataset.diff;
     if (!PRESETS[diff]) return;
     const keepDisplayMode = settings.displayMode;
-    const keepTouchpad = { touchpadScale: settings.touchpadScale, touchpadGap: settings.touchpadGap, touchpadOffset: settings.touchpadOffset, canvasScale: settings.canvasScale, canvasVOffset: settings.canvasVOffset };
+    const keepTouchpad = { touchpadScale: settings.touchpadScale, touchpadHOffset: settings.touchpadHOffset, touchpadVOffset: settings.touchpadVOffset, canvasScale: settings.canvasScale, canvasVOffset: settings.canvasVOffset, touchpadLScale: settings.touchpadLScale, touchpadLHOffset: settings.touchpadLHOffset, touchpadLVAlign: settings.touchpadLVAlign, touchpadSide: settings.touchpadSide };
     const keepAudio = { sfxVolume: settings.sfxVolume, musicVolume: settings.musicVolume, musicEnabled: settings.musicEnabled, musicTrack: settings.musicTrack };
     settings = {...PRESETS[diff], displayMode: keepDisplayMode, ...keepTouchpad, ...keepAudio};
     saveSettings();
@@ -905,10 +1019,10 @@ function buildDisplayPage(body) {
   voSlider.type = 'range'; voSlider.min = -300; voSlider.max = 300; voSlider.step = 5;
   voSlider.value = settings.canvasVOffset;
   const voVal = document.createElement('div');
-  voVal.className = 'value'; voVal.textContent = settings.canvasVOffset + 'px';
+  voVal.className = 'value'; voVal.textContent = settings.canvasVOffset === 0 ? 'center' : (settings.canvasVOffset > 0 ? 'down ' : 'up ') + Math.abs(settings.canvasVOffset) + 'px';
   voSlider.addEventListener('input', () => {
     settings.canvasVOffset = parseFloat(voSlider.value);
-    voVal.textContent = settings.canvasVOffset + 'px';
+    voVal.textContent = settings.canvasVOffset === 0 ? 'center' : (settings.canvasVOffset > 0 ? 'down ' : 'up ') + Math.abs(settings.canvasVOffset) + 'px';
     saveSettings();
     applyCanvasScale();
   });
@@ -938,9 +1052,35 @@ function buildDisplayPage(body) {
   }
 
   // touchpad section
+  const landscape = isLandscapeMobile();
   const tpHeader = document.createElement('h3');
-  tpHeader.textContent = 'touchpad';
+  tpHeader.textContent = landscape ? 'touchpad (landscape)' : 'touchpad';
   body.appendChild(tpHeader);
+
+  // touchpad side (landscape only)
+  if (landscape) {
+    const sideLabel = document.createElement('div');
+    sideLabel.style.cssText = 'font-size:11px;color:#666680;margin-bottom:8px;';
+    sideLabel.textContent = 'side';
+    body.appendChild(sideLabel);
+    const sideRow = document.createElement('div');
+    sideRow.style.cssText = 'display:flex;gap:8px;margin-bottom:12px;';
+    ['left', 'right'].forEach(side => {
+      const btn = document.createElement('button');
+      btn.textContent = side;
+      const isActive = settings.touchpadSide === side;
+      btn.style.cssText = `flex:1;background:${isActive ? '#1a1a2e' : 'transparent'};color:${isActive ? '#7fe8ff' : '#e8e8f0'};border:1px solid ${isActive ? '#7fe8ff' : '#44445a'};border-radius:6px;padding:8px;font-family:inherit;font-size:12px;letter-spacing:2px;cursor:pointer;text-transform:uppercase;`;
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        settings.touchpadSide = side;
+        saveSettings();
+        applyTouchpadScale();
+        buildSettingsUI('display');
+      });
+      sideRow.appendChild(btn);
+    });
+    body.appendChild(sideRow);
+  }
 
   // touchpad scale
   const makeSliderRow = (label, defText, min, max, step, getValue, formatVal, onChange) => {
@@ -969,18 +1109,49 @@ function buildDisplayPage(body) {
     return row;
   };
 
+  // use landscape or portrait settings depending on orientation
+  const scaleKey = landscape ? 'touchpadLScale' : 'touchpadScale';
+  const hKey = landscape ? 'touchpadLHOffset' : 'touchpadHOffset';
+  const vKey = 'touchpadVOffset'; // portrait only — landscape uses position picker
+
   body.appendChild(makeSliderRow('size', 'default: 1.00x', 0.2, 2.0, 0.05,
-    () => settings.touchpadScale, v => v.toFixed(2) + 'x',
-    v => { settings.touchpadScale = v; }));
+    () => settings[scaleKey], v => v.toFixed(2) + 'x',
+    v => { settings[scaleKey] = v; }));
 
-  body.appendChild(makeSliderRow('distance from canvas', 'default: 1.0', 0, 20, 0.25,
-    () => settings.touchpadGap, v => v.toFixed(2),
-    v => { settings.touchpadGap = v; }));
+  body.appendChild(makeSliderRow('horizontal offset', 'default: 0px', -150, 150, 5,
+    () => settings[hKey],
+    v => v === 0 ? 'center' : (v > 0 ? 'right ' : 'left ') + Math.abs(v) + 'px',
+    v => { settings[hKey] = v; }));
 
-  body.appendChild(makeSliderRow('horizontal position', 'default: center', -100, 100, 5,
-    () => settings.touchpadOffset,
-    v => v === 0 ? 'center' : (v > 0 ? 'right ' : 'left ') + Math.abs(v),
-    v => { settings.touchpadOffset = v; }));
+  if (landscape) {
+    // vertical position picker for landscape
+    const vpLabel = document.createElement('div');
+    vpLabel.style.cssText = 'font-size:11px;color:#666680;margin:12px 0 8px;';
+    vpLabel.textContent = 'vertical position';
+    body.appendChild(vpLabel);
+    const vpRow = document.createElement('div');
+    vpRow.style.cssText = 'display:flex;gap:8px;margin-bottom:12px;';
+    [['top','start'], ['center','center'], ['bottom','end']].forEach(([label, val]) => {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      const isActive = settings.touchpadLVAlign === val;
+      btn.style.cssText = `flex:1;background:${isActive ? '#1a1a2e' : 'transparent'};color:${isActive ? '#7fe8ff' : '#e8e8f0'};border:1px solid ${isActive ? '#7fe8ff' : '#44445a'};border-radius:6px;padding:8px;font-family:inherit;font-size:12px;letter-spacing:2px;cursor:pointer;text-transform:uppercase;`;
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        settings.touchpadLVAlign = val;
+        saveSettings();
+        applyTouchpadScale();
+        buildSettingsUI('display');
+      });
+      vpRow.appendChild(btn);
+    });
+    body.appendChild(vpRow);
+  } else {
+    body.appendChild(makeSliderRow('vertical offset', 'default: 0px', -150, 150, 5,
+      () => settings[vKey],
+      v => v === 0 ? 'center' : (v > 0 ? 'down ' : 'up ') + Math.abs(v) + 'px',
+      v => { settings[vKey] = v; }));
+  }
 }
 
 function buildGameplayPage(body) {
@@ -1003,7 +1174,7 @@ function buildGameplayPage(body) {
       btn.addEventListener('click', e => {
         e.stopPropagation();
         const keepDisplayMode = settings.displayMode;
-        const keepTouchpad = { touchpadScale: settings.touchpadScale, touchpadGap: settings.touchpadGap, touchpadOffset: settings.touchpadOffset, canvasScale: settings.canvasScale, canvasVOffset: settings.canvasVOffset };
+        const keepTouchpad = { touchpadScale: settings.touchpadScale, touchpadHOffset: settings.touchpadHOffset, touchpadVOffset: settings.touchpadVOffset, canvasScale: settings.canvasScale, canvasVOffset: settings.canvasVOffset, touchpadLScale: settings.touchpadLScale, touchpadLHOffset: settings.touchpadLHOffset, touchpadLVAlign: settings.touchpadLVAlign, touchpadSide: settings.touchpadSide };
         const keepAudio = { sfxVolume: settings.sfxVolume, musicVolume: settings.musicVolume, musicEnabled: settings.musicEnabled, musicTrack: settings.musicTrack };
         settings = {...PRESETS[m], displayMode: keepDisplayMode, ...keepTouchpad, ...keepAudio};
         saveSettings();
@@ -1255,7 +1426,7 @@ document.getElementById('resetDefaults').addEventListener('click', e => {
   e.stopPropagation();
   if (paused) return;
   const keepDisplayMode = settings.displayMode;
-  const keepTouchpad = { touchpadScale: settings.touchpadScale, touchpadGap: settings.touchpadGap, touchpadOffset: settings.touchpadOffset, canvasScale: settings.canvasScale, canvasVOffset: settings.canvasVOffset };
+  const keepTouchpad = { touchpadScale: settings.touchpadScale, touchpadHOffset: settings.touchpadHOffset, touchpadVOffset: settings.touchpadVOffset, canvasScale: settings.canvasScale, canvasVOffset: settings.canvasVOffset, touchpadLScale: settings.touchpadLScale, touchpadLHOffset: settings.touchpadLHOffset, touchpadLVAlign: settings.touchpadLVAlign, touchpadSide: settings.touchpadSide };
   const keepAudio = { sfxVolume: settings.sfxVolume, musicVolume: settings.musicVolume, musicEnabled: settings.musicEnabled, musicTrack: settings.musicTrack };
   settings = {...DEFAULTS, displayMode: keepDisplayMode, ...keepTouchpad, ...keepAudio};
   saveSettings();
@@ -1363,8 +1534,13 @@ fsBtn.addEventListener('click', e => {
     }
   } catch (err) { /* fullscreen not supported in this context */ }
 });
-document.addEventListener('fullscreenchange', updateFsBtn);
-document.addEventListener('webkitfullscreenchange', updateFsBtn);
+function onFullscreenChange() {
+  updateFsBtn();
+  applyTouchpadScale();
+  applyCanvasScale();
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 updateFsBtn();
 
 // Wake up AudioContext — Android Chrome activates audio on touchend, not touchstart
@@ -1810,7 +1986,7 @@ if (legacyBest && !bestScores.classic) {
   localStorage.removeItem('twitchBest');
 }
 function settingsMatch(preset) {
-  const skip = ['displayMode','touchpadScale','touchpadGap','touchpadOffset','canvasScale','canvasVOffset','sfxVolume','musicVolume','musicEnabled','musicTrack'];
+  const skip = ['displayMode','touchpadScale','touchpadHOffset','touchpadVOffset','touchpadLScale','touchpadLHOffset','touchpadLVAlign','touchpadSide','canvasScale','canvasVOffset','sfxVolume','musicVolume','musicEnabled','musicTrack'];
   for (const k of Object.keys(DEFAULTS)) {
     if (skip.includes(k)) continue;
     if (settings[k] !== preset[k]) return false;
@@ -1911,6 +2087,17 @@ bestEl.textContent = bestLabel();
 applyDisplayMode();
 applyTouchpadScale();
 applyCanvasScale();
+// re-apply layout on orientation change or resize
+window.matchMedia('(orientation: landscape)').addEventListener('change', () => {
+  applyTouchpadScale();
+  applyCanvasScale();
+  if (document.getElementById('settingsOverlay').classList.contains('visible')) {
+    buildSettingsUI('display');
+  }
+});
+window.addEventListener('resize', () => {
+  applyCanvasScale();
+});
 
 function rect() { return canvas.getBoundingClientRect(); }
 function setPlayer(cx, cy) {
@@ -2062,7 +2249,7 @@ canvas.addEventListener('mouseenter', e => {
 // click outside canvas → pause; click inside → toggle pause OR start
 document.addEventListener('click', e => {
   // ignore clicks on settings gear or settings panel
-  if (e.target.closest('#gearBtn') || e.target.closest('#soundBtn') || e.target.closest('#musicBtn') || e.target.closest('#fsBtn') || e.target.closest('#settingsOverlay') || e.target.closest('#diffBtns')) return;
+  if (e.target.closest('#gearBtn') || e.target.closest('#soundBtn') || e.target.closest('#musicBtn') || e.target.closest('#fsBtn') || e.target.closest('#settingsOverlay') || e.target.closest('#diffBtns') || e.target.closest('#emergencyReset')) return;
   const canvasWrap = document.getElementById('canvasWrap');
   const insideCanvas = canvasWrap.contains(e.target);
   if (!running) {
